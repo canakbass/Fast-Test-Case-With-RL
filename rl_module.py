@@ -7,6 +7,18 @@ import importlib.util
 import os
 from stable_baselines3 import PPO
 
+def save_model(model, path="ppo_model.zip"):
+    model.save(path)
+
+def load_model(env, path="ppo_model.zip"):
+    from stable_baselines3 import PPO
+    return PPO.load(path, env=env)
+
+def fine_tune_model(model, env, timesteps=1000):
+    model.set_env(env)
+    model.learn(total_timesteps=timesteps)
+    return model
+
 class TestGenEnv(gym.Env):
     def __init__(self, func_to_test, source_file):
         super(TestGenEnv, self).__init__()
@@ -115,7 +127,59 @@ class TestGenEnv(gym.Env):
 
         return self.current_coverage_vec, reward, terminated, truncated, {}
 
-def train_and_generate_cases(code_content, module_name="temp_module", timesteps=1000):
+def train_and_generate_cases(code_content, module_name="temp_module", timesteps=1000, mode="train", model_path="ppo_model.zip", fine_tune_steps=500):
+    """
+    mode: "train" -> yeni model eğit ve kaydet
+          "load"  -> hazır modeli yükle ve test case üret
+          "fine_tune" -> hazır modeli fine-tune et ve test case üret
+    """
+    # Save code to file
+    file_path = f"{module_name}.py"
+    with open(file_path, "w") as f:
+        f.write(code_content)
+
+    # Import the module
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    # Find the first function to test
+    target_func = None
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and obj.__module__ == module_name:
+            target_func = obj
+            break
+
+    if not target_func:
+        return []
+
+    # Create Env
+    env = TestGenEnv(target_func, file_path)
+
+    if mode == "train":
+        model = PPO("MlpPolicy", env, verbose=1)
+        model.learn(total_timesteps=timesteps)
+        save_model(model, model_path)
+    elif mode == "load":
+        model = load_model(env, model_path)
+    elif mode == "fine_tune":
+        model = load_model(env, model_path)
+        model = fine_tune_model(model, env, timesteps=fine_tune_steps)
+        save_model(model, model_path)
+    else:
+        raise ValueError("Unknown mode")
+
+    # Return collected useful cases
+    actual_env = model.env.envs[0]
+    while hasattr(actual_env, 'env'):
+        if isinstance(actual_env, TestGenEnv):
+            break
+        actual_env = actual_env.env
+
+    if isinstance(actual_env, TestGenEnv):
+        return actual_env.useful_cases
+    else:
+        return []
     # Save code to file
     file_path = f"{module_name}.py"
     with open(file_path, "w") as f:

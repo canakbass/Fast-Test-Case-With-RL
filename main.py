@@ -46,30 +46,34 @@ if uploaded_file is not None:
 
     with col2:
         st.subheader("Otomatik Test Üretimi")
-        if st.button("RL Ajanı ile Test Üret"):
-            with st.spinner("RL Ajanı eğitiliyor ve test case'ler aranıyor..."):
-                # Save temp file for RL module to import
-                # We need to make sure the filename matches what RL module expects if it does imports
-                # RL module creates 'temp_module.py' in current directory.
+        mode = st.radio("Test Case Üretim Modu", ["Hazır Modelle Üret", "Modeli Fine-Tune Et ve Üret"])
+        model_path = "ppo_model.zip"
+        fine_tune_steps = st.sidebar.slider("Fine-Tune Step", 100, 5000, 500)
 
-                cases = train_and_generate_cases(code_content, timesteps=timesteps)
+        if st.button("Test Case Üret"):
+            if mode == "Hazır Modelle Üret":
+                with st.spinner("Hazır model yükleniyor ve test case'ler aranıyor..."):
+                    cases = train_and_generate_cases(code_content, timesteps=timesteps, mode="load", model_path=model_path)
+            else:
+                with st.spinner("Model fine-tune ediliyor ve test case'ler aranıyor..."):
+                    cases = train_and_generate_cases(code_content, timesteps=timesteps, mode="fine_tune", model_path=model_path, fine_tune_steps=fine_tune_steps)
 
-                st.success(f"{len(cases)} adet test senaryosu üretildi!")
-                st.write("### Üretilen Test Case'ler (Input -> New Coverage)")
-                st.dataframe(cases)
+            st.success(f"{len(cases)} adet test senaryosu üretildi!")
+            st.write("### Üretilen Test Case'ler (Input -> New Coverage)")
+            st.dataframe(cases)
 
-                if cases:
-                    with st.spinner("LLM ile Pytest koduna çevriliyor..."):
-                        pytest_code = generate_pytest_code(cases, code_content)
-                        st.write("### Oluşturulan Pytest Kodu")
-                        st.code(pytest_code, language="python")
+            if cases:
+                with st.spinner("LLM ile Pytest koduna çevriliyor..."):
+                    pytest_code = generate_pytest_code(cases, code_content)
+                    st.write("### Oluşturulan Pytest Kodu")
+                    st.code(pytest_code, language="python")
 
-                        st.download_button(
-                            label="Test Kodunu İndir",
-                            data=pytest_code,
-                            file_name="test_generated.py",
-                            mime="text/x-python"
-                        )
+                    st.download_button(
+                        label="Test Kodunu İndir",
+                        data=pytest_code,
+                        file_name="test_generated.py",
+                        mime="text/x-python"
+                    )
 
 st.markdown("---")
 st.info("Not: Bu sistem Stable-Baselines3 (PPO) kullanarak coverage arttıran inputları keşfeder ve OpenAI GPT ile bunları test koduna dönüştürür.")
