@@ -1,0 +1,12 @@
+stable-baselines3
+gym
+shimmy>=0.2.1
+openai
+coverage
+radon
+networkx
+graphviz
+streamlit
+pytest
+matplotlib
+pandas
