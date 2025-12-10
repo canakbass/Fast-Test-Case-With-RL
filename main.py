@@ -2,7 +2,7 @@ import streamlit as st
 import os
 import shutil
 import tempfile
-from rl_module import train_and_generate_cases
+from rl_module import train_and_generate_cases, iterative_fine_tune
 from llm_module import generate_pytest_code
 from analiz_module import get_metrics, generate_call_graph
 import graphviz
@@ -46,19 +46,21 @@ if uploaded_file is not None:
 
     with col2:
         st.subheader("Otomatik Test Üretimi")
-        mode = st.radio("Test Case Üretim Modu", ["Hazır Modelle Üret", "Modeli Fine-Tune Et ve Üret"])
-        model_path = "ppo_model.zip"
-        fine_tune_steps = st.sidebar.slider("Fine-Tune Step", 100, 5000, 500)
+        mode = st.radio("Test Case Üretim Modu", ["Hazır Base Modelle Üret", "Base Modeli Fine-Tune Et ve Üret (Döngülü)"])
+        base_model_path = "ppo_base_model.zip"
+        fine_tune_steps = st.sidebar.slider("Fine-Tune Step", 1000, 50000, 20000)
+        coverage_threshold = st.sidebar.slider("Coverage Threshold (%)", 50, 100, 85)
+        max_rounds = st.sidebar.slider("Max Fine-Tune Round", 1, 5, 3)
 
         if st.button("Test Case Üret"):
-            if mode == "Hazır Modelle Üret":
-                with st.spinner("Hazır model yükleniyor ve test case'ler aranıyor..."):
-                    cases = train_and_generate_cases(code_content, timesteps=timesteps, mode="load", model_path=model_path)
+            if mode == "Hazır Base Modelle Üret":
+                with st.spinner("Hazır base model yükleniyor ve test case'ler aranıyor..."):
+                    cases, coverage, rounds = iterative_fine_tune(code_content, module_name="user_code", base_model_path=base_model_path, fine_tune_steps=0, coverage_threshold=coverage_threshold, max_rounds=1)
             else:
-                with st.spinner("Model fine-tune ediliyor ve test case'ler aranıyor..."):
-                    cases = train_and_generate_cases(code_content, timesteps=timesteps, mode="fine_tune", model_path=model_path, fine_tune_steps=fine_tune_steps)
+                with st.spinner("Base model fine-tune ediliyor ve coverage döngüsü başlatılıyor..."):
+                    cases, coverage, rounds = iterative_fine_tune(code_content, module_name="user_code", base_model_path=base_model_path, fine_tune_steps=fine_tune_steps, coverage_threshold=coverage_threshold, max_rounds=max_rounds)
 
-            st.success(f"{len(cases)} adet test senaryosu üretildi!")
+            st.success(f"{len(cases)} adet test senaryosu üretildi! Coverage: %{coverage:.2f}, Fine-Tune Round: {rounds}")
             st.write("### Üretilen Test Case'ler (Input -> New Coverage)")
             st.dataframe(cases)
 

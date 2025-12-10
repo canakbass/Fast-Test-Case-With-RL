@@ -1,3 +1,110 @@
+import coverage
+import radon.raw as radon_raw
+from tqdm import trange
+import torch
+# --- Coverage Ölçüm Fonksiyonu ---
+def measure_coverage(code_path, func_name=None):
+    cov = coverage.Coverage(source=[code_path], data_file=None)
+    cov.start()
+    # Fonksiyonun tüm branch'lerini tetiklemek için dummy inputlar ile çalıştırmak gerekebilir
+    # Burada sadece dosya coverage'ı ölçülür
+    cov.stop()
+    analysis = cov.analysis(code_path)
+    executed = set(analysis[1])
+    missing = set(analysis[3])
+    total = len(executed) + len(missing)
+    percent = 100 * len(executed) / total if total > 0 else 0
+    return percent
+def train_base_model(dataset, timesteps=2000000, model_path="ppo_base_model.zip", checkpoint_freq=50000):
+    """
+    dataset: List of (code_content, module_name)
+    Uzun süreli base RL eğitimi. Her kod için ayrı env ile PPO eğitimi.
+    checkpoint_freq: Her kaç adımda bir checkpoint kaydedileceği
+    """
+    for code_content, module_name in dataset:
+        file_path = f"{module_name}.py"
+        with open(file_path, "w") as f:
+            f.write(code_content)
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        target_func = None
+        for name, obj in inspect.getmembers(module):
+            if inspect.isfunction(obj) and obj.__module__ == module_name:
+                target_func = obj
+                break
+        if not target_func:
+            continue
+        env = TestGenEnv(target_func, file_path)
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"Using device: {device}")
+        
+        checkpoint_path = f"{model_path.replace('.zip', '')}_checkpoint_{module_name}.zip"
+        # Eğer checkpoint varsa devam et
+        if os.path.exists(checkpoint_path):
+            print(f"Checkpoint bulundu: {checkpoint_path}, devam ediliyor...")
+            model = load_model(env, checkpoint_path)
+        else:
+            model = PPO("MlpPolicy", env, verbose=0, device=device)
+        
+        steps_per_iter = 10000
+        total_steps = 0
+        try:
+            for i in trange(0, timesteps, steps_per_iter, desc=f"{module_name} RL Training", unit="step"):
+                model.learn(total_timesteps=min(steps_per_iter, timesteps-i), reset_num_timesteps=False)
+                total_steps += min(steps_per_iter, timesteps-i)
+                # Her checkpoint_freq adımda bir kaydet
+                if total_steps % checkpoint_freq == 0:
+                    save_model(model, checkpoint_path)
+                    print(f"\nCheckpoint kaydedildi: {checkpoint_path} ({total_steps}/{timesteps} steps)")
+        except KeyboardInterrupt:
+            print(f"\nEğitim kesintiye uğradı! Son checkpoint kaydediliyor: {checkpoint_path}")
+            save_model(model, checkpoint_path)
+            print(f"Checkpoint kaydedildi. Devam etmek için aynı scripti tekrar çalıştırın.")
+            raise
+        
+        # Eğitim tamamlandı, final model kaydet
+        save_model(model, model_path)
+        print(f"\nEğitim tamamlandı! Final model: {model_path}")
+        # Checkpoint dosyasını sil (artık gerekli değil)
+        if os.path.exists(checkpoint_path):
+            os.remove(checkpoint_path)
+    return model_path
+def iterative_fine_tune(code_content, module_name="temp_module", base_model_path="ppo_base_model.zip", fine_tune_steps=20000, coverage_threshold=85, max_rounds=3):
+    """
+    Base model ile test case üret, coverage düşükse max 3 döngü fine-tune et.
+    """
+    file_path = f"{module_name}.py"
+    with open(file_path, "w") as f:
+        f.write(code_content)
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    target_func = None
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and obj.__module__ == module_name:
+            target_func = obj
+            break
+    if not target_func:
+        return [], 0, 0
+    env = TestGenEnv(target_func, file_path)
+    model = load_model(env, base_model_path)
+    cases = []
+    coverage = 0
+    for round in range(max_rounds):
+        model = fine_tune_model(model, env, timesteps=fine_tune_steps)
+        save_model(model, base_model_path)
+        actual_env = model.env.envs[0]
+        while hasattr(actual_env, 'env'):
+            if isinstance(actual_env, TestGenEnv):
+                break
+            actual_env = actual_env.env
+        if isinstance(actual_env, TestGenEnv):
+            cases = actual_env.useful_cases
+        coverage = measure_coverage(file_path)
+        if coverage >= coverage_threshold:
+            break
+    return cases, coverage, round+1
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -157,7 +264,9 @@ def train_and_generate_cases(code_content, module_name="temp_module", timesteps=
     env = TestGenEnv(target_func, file_path)
 
     if mode == "train":
-        model = PPO("MlpPolicy", env, verbose=1)
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"Using device: {device}")
+        model = PPO("MlpPolicy", env, verbose=1, device=device)
         model.learn(total_timesteps=timesteps)
         save_model(model, model_path)
     elif mode == "load":
