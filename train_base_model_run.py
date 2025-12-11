@@ -1,16 +1,13 @@
 from rl_module import train_base_model
-from tqdm import tqdm
+from dataset_large import dataset
 
-# Dataset
-files = ['sample_code.py', 'target_code.py', 'temp_module.py']
-dataset = [(open(f).read(), f.split('.')[0]) for f in files]
+print(f"Base RL Model Eğitimi Başlıyor: {len(dataset)} farklı fonksiyon, 2M timesteps")
+print("GPU kullanılıyorsa çok daha hızlı olacak...")
+print("Checkpoint sistemi aktif - kesinti durumunda devam edilebilir.\n")
 
-total = len(dataset)
-print(f"Base RL Model Eğitimi Başlıyor: {total} kod, 2M timesteps")
+# Tek bir unified base model eğit
+train_base_model(dataset, timesteps=200000, model_path='ppo_base_model.zip', checkpoint_freq=50000)
 
-for i, (code, name) in enumerate(tqdm(dataset, desc="Kodlar", unit="kod")):
-    print(f"Eğitim: {name} ({i+1}/{total})")
-    train_base_model([(code, name)], timesteps=200000, model_path=f'ppo_base_model_{name}.zip')
-    print(f"Model kaydedildi: ppo_base_model_{name}.zip\n")
-
-print("Tüm base modeller eğitildi!")
+print("\n✓ Base model eğitimi tamamlandı: ppo_base_model.zip")
+print("\nŞimdi arayüzü başlatmak için:")
+print("streamlit run main.py")
