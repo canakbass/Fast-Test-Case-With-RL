@@ -1,53 +1,78 @@
-"""Test file 2: Math operations"""
-
-
-def factorial(n: int) -> int:
-    """Calculate factorial."""
-    if n < 0:
-        raise ValueError("Negative number")
-    if n == 0:
-        return 1
-    result = 1
-    for i in range(1, n + 1):
-        result *= i
-    return result
-
-
-def fibonacci(n: int) -> int:
-    """Get nth Fibonacci number."""
-    if n < 0:
-        raise ValueError("Negative index")
-    if n <= 1:
-        return n
-    a, b = 0, 1
-    for _ in range(2, n + 1):
-        a, b = b, a + b
-    return b
-
-
-def is_prime(n: int) -> bool:
-    """Check if number is prime."""
-    if n < 2:
-        return False
-    if n == 2:
-        return True
-    if n % 2 == 0:
-        return False
-    for i in range(3, int(n**0.5) + 1, 2):
-        if n % i == 0:
-            return False
-    return True
-
-
-def gcd(a: int, b: int) -> int:
-    """Greatest common divisor."""
-    while b:
-        a, b = b, a % b
-    return abs(a)
-
-
-def power(base: float, exp: int) -> float:
-    """Calculate power."""
-    if exp < 0:
-        return 1 / (base ** abs(exp))
-    return base ** exp
+import math
+from typing import List, Union
+
+class AdvancedCalculator:
+    def __init__(self):
+        self.history: List[str] = []
+
+    def _add_to_history(self, operation: str, result: Union[int, float]) -> None:
+        entry = f"{operation} = {result}"
+        self.history.append(entry)
+
+    def add(self, a: float, b: float) -> float:
+        result = a + b
+        self._add_to_history(f"{a} + {b}", result)
+        return result
+
+    def subtract(self, a: float, b: float) -> float:
+        result = a - b
+        self._add_to_history(f"{a} - {b}", result)
+        return result
+
+    def multiply(self, a: float, b: float) -> float:
+        result = a * b
+        self._add_to_history(f"{a} * {b}", result)
+        return result
+
+    def divide(self, a: float, b: float) -> float:
+        if b == 0:
+            raise ValueError("Error: Division by zero is not allowed.")
+        result = a / b
+        self._add_to_history(f"{a} / {b}", result)
+        return result
+
+    def modulo(self, a: float, b: float) -> float:
+        result = a % b
+        self._add_to_history(f"{a} % {b}", result)
+        return result
+
+    def power(self, base: float, exponent: float) -> float:
+        result = math.pow(base, exponent)
+        self._add_to_history(f"{base} ^ {exponent}", result)
+        return result
+
+    def square_root(self, a: float) -> float:
+        if a < 0:
+            raise ValueError("Error: Cannot calculate square root of a negative number.")
+        result = math.sqrt(a)
+        self._add_to_history(f"sqrt({a})", result)
+        return result
+
+
+    def logarithm(self, a: float, base: float = 10) -> float:
+        if a <= 0 or base <= 0:
+            raise ValueError("Error: Logarithm input and base must be positive.")
+        result = math.log(a, base)
+        self._add_to_history(f"log{base}({a})", result)
+        return result
+
+    def sin(self, a: float) -> float:
+        result = math.sin(a)
+        self._add_to_history(f"sin({a})", result)
+        return result
+
+    def cos(self, a: float) -> float:
+        result = math.cos(a)
+        self._add_to_history(f"cos({a})", result)
+        return result
+
+    def tan(self, a: float) -> float:
+        result = math.tan(a)
+        self._add_to_history(f"tan({a})", result)
+        return result
+
+    def get_history(self) -> List[str]:
+        return self.history
+
+    def clear_history(self) -> None:
+        self.history = []

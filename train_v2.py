@@ -150,10 +150,11 @@ if __name__ == "__main__":
     print(f"Dataset: {len(dataset)} fonksiyon")
     print()
     
-    # Base model eğit (her kod için 50k step)
+    # Base model eğit - Efficiency-based reward ile optimize edildi
+    # Early stopping ve duplicate penalty sayesinde daha az step gerekli
     train_base_model(
         dataset, 
-        timesteps_per_code=50000,  # Her kod için 50k step
+        timesteps_per_code=30000,  # Azaltıldı: 50k -> 30k (efficiency sayesinde)
         model_path="ppo_testgen_base.zip",
         checkpoint_freq=10000
     )

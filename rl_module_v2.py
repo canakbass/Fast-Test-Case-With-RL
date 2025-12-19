@@ -146,9 +146,36 @@ def get_function_info(code_content, module_name="temp", target_func_name=None, i
         if is_method and class_name:
             if hasattr(module, class_name):
                 cls = getattr(module, class_name)
-                # Class instance oluştur
+                # Class instance oluştur - __init__ parametrelerini kontrol et
+                instance = None
                 try:
+                    # Önce parametresiz dene
                     instance = cls()
+                except TypeError:
+                    # __init__ parametreleri varsa, varsayılan değerlerle dene
+                    try:
+                        init_sig = inspect.signature(cls.__init__)
+                        init_args = {}
+                        for p in init_sig.parameters.values():
+                            if p.name == 'self':
+                                continue
+                            # Tip bazlı varsayılan değerler
+                            if p.annotation != inspect.Parameter.empty:
+                                if p.annotation == int or p.annotation == 'int':
+                                    init_args[p.name] = 10
+                                elif p.annotation == float or p.annotation == 'float':
+                                    init_args[p.name] = 10.0
+                                elif p.annotation == str or p.annotation == 'str':
+                                    init_args[p.name] = "test"
+                                elif p.annotation == list or p.annotation == 'list':
+                                    init_args[p.name] = []
+                                else:
+                                    init_args[p.name] = 10  # Varsayılan
+                            else:
+                                init_args[p.name] = 10
+                        instance = cls(**init_args)
+                    except:
+                        instance = None
                 except:
                     instance = None
                 
@@ -216,8 +243,9 @@ def get_all_functions(code_content):
     
     def is_numeric_compatible(annotation):
         """Annotation'ın sayısal olup olmadığını kontrol et"""
+        # None annotation'ları reddet - tipi belirsiz
         if annotation is None:
-            return True  # Annotation yoksa varsayılan olarak sayısal kabul et
+            return False
         if isinstance(annotation, ast.Name):
             # int, float, bool kabul et; list, str, dict vs. reddet
             return annotation.id in ('int', 'float', 'bool', 'Union', 'Optional')
@@ -267,8 +295,8 @@ def get_all_functions(code_content):
                 class_name = node.name
                 for item in node.body:
                     if isinstance(item, ast.FunctionDef):
-                        # __init__, __str__ gibi magic metodları atla
-                        if item.name.startswith('_'):
+                        # Magic metodları filtrele ama __init__'i dahil et
+                        if item.name.startswith('_') and item.name != '__init__':
                             continue
                         if check_params(item.args.args):
                             functions.append({
@@ -330,7 +358,7 @@ class TestCaseGeneratorEnv(gym.Env):
         self.step_count = 0
         self.test_count = 0  # Total test cases generated this episode
         self.efficiency_history = []  # Track coverage/test ratio
-        self.max_steps = 50  # Azaltıldı: 100 -> 50 (daha az brute force)
+        self.max_steps = 30  # Azaltıldı: 100 -> 50 -> 30 (çok daha az brute force)
         
         # Boundary analysis için
         self.boundary_info = None
@@ -472,6 +500,24 @@ class TestCaseGeneratorEnv(gym.Env):
             elif annotation == list:
                 # Basit liste oluştur
                 converted_inputs.append([int(val)])
+            elif hasattr(annotation, '__origin__'):
+                # Tuple tip desteği
+                if annotation.__origin__ == tuple:
+                    # Tuple[int, int] gibi durumlarda tek değeri kullan
+                    tuple_values = []
+                    if hasattr(annotation, '__args__'):
+                        for arg_type in annotation.__args__:
+                            if arg_type == int:
+                                tuple_values.append(int(val))
+                            elif arg_type == str:
+                                tuple_values.append(str(int(val)))
+                            else:
+                                tuple_values.append(int(val))
+                        converted_inputs.append(tuple(tuple_values))
+                    else:
+                        converted_inputs.append((int(val),))
+                else:
+                    converted_inputs.append(float(val))
             else:
                 # Default: float olarak bırak
                 converted_inputs.append(float(val))
@@ -585,11 +631,11 @@ class TestCaseGeneratorEnv(gym.Env):
         # Early stopping conditions (efficiency-based)
         coverage_pct = len(self.covered_lines) / max(self.total_lines, 1)
         
-        # 1. Coverage %90'a ulaştıysa bitir (daha erken)
-        if coverage_pct >= 0.90:
+        # 1. Coverage %85'e ulaştıysa bitir (daha agresif)
+        if coverage_pct >= 0.85:
             terminated = True
         
-        # 2. Son 10 testte yeni coverage yoksa bitir (efficiency)
+        # 2. Son 10 testte yeni coverage yoksa bitir (kompleks fonksiyonlar için)
         if self.test_count >= 10:
             recent_cases = self.useful_cases[-10:]
             if all(c.get('coverage_increase', 0) == 0 for c in recent_cases):
@@ -719,7 +765,9 @@ def generate_test_cases(
     model_path="ppo_testgen_base.zip",
     num_episodes=2,  # Azaltıldı: 10 -> 2 (efficiency için)
     fine_tune_steps=0,
-    use_boundary_analysis=True
+    use_boundary_analysis=True,
+    save_finetuned_model=False,
+    progress_callback=None
 ):
     """
     Verilen koddaki TÜM fonksiyonlar için test case'ler üret.
@@ -727,8 +775,10 @@ def generate_test_cases(
     code_content: Test edilecek Python kodu (birden fazla fonksiyon içerebilir)
     model_path: Eğitilmiş model yolu
     num_episodes: Her fonksiyon için kaç episode çalıştırılacak
-    fine_tune_steps: İsteğe bağlı fine-tuning adımı
+    fine_tune_steps: İsteğe bağlı fine-tuning adımı (her fonksiyon için)
     use_boundary_analysis: Sınır değer analizi kullan
+    save_finetuned_model: Fine-tuned modeli kaydet
+    progress_callback: İlerleme mesajları için callback fonksiyonu
     """
     
     # Tüm fonksiyonları bul
@@ -755,21 +805,37 @@ def generate_test_cases(
         'functions': [],
         'total_cases': 0,
         'total_coverage_lines': 0,
-        'total_lines': 0
+        'total_lines': 0,
+        'all_covered_lines': set(),  # Tüm fonksiyonlardan kümülatif coverage
+        'file_lines': 0  # Dosyadaki gerçek satır sayısı
     }
     
+    # Dosyadaki toplam satır sayısını bir kere hesapla (boş satır ve yorumları çıkar)
+    code_lines = []
+    for line in code_content.split('\n'):
+        stripped = line.strip()
+        # Boş satırları ve sadece yorum olan satırları atla
+        if stripped and not stripped.startswith('#') and not stripped.startswith('"""') and not stripped.startswith("'''"):
+            code_lines.append(line)
+    total_coverage_info['file_lines'] = len(code_lines)
+    
+    print(f"Dosyadaki kod satırı sayısı: {len(code_lines)}")
+    
     # Her fonksiyon için test case üret
-    for func_info in all_functions:
+    for idx, func_info in enumerate(all_functions):
         func_name = func_info['name']
         is_method = func_info.get('is_method', False)
         class_name = func_info.get('class_name', None)
         
         print(f"\n{'='*50}")
         if is_method:
-            print(f"Metod: {class_name}.{func_name}")
+            print(f"Metod {idx+1}/{len(all_functions)}: {class_name}.{func_name}")
         else:
-            print(f"Fonksiyon: {func_name}")
+            print(f"Fonksiyon {idx+1}/{len(all_functions)}: {func_name}")
         print(f"{'='*50}")
+        
+        if progress_callback:
+            progress_callback(f"🔄 İşleniyor: {func_name} ({idx+1}/{len(all_functions)})")
         
         # Environment'ı bu fonksiyon için ayarla
         env.set_code(code_content, f"target_{func_name}", func_name, is_method, class_name)
@@ -787,41 +853,58 @@ def generate_test_cases(
         else:
             model.set_env(env)
         
-        # Fine-tuning (sadece ilk fonksiyonda)
-        if fine_tune_steps > 0 and func_name == all_functions[0]['name']:
-            print(f"  Fine-tuning: {fine_tune_steps} steps...")
+        # Fine-tuning (her fonksiyon için - ama sadece parametreli fonksiyonlarda)
+        num_params = len(env.current_params)
+        if fine_tune_steps > 0 and num_params > 0:
+            print(f"  🎯 Fine-tuning: {fine_tune_steps} steps...")
+            if progress_callback:
+                progress_callback(f"🎓 {func_name} için model eğitiliyor... ({fine_tune_steps} steps)")
             model.learn(total_timesteps=fine_tune_steps, reset_num_timesteps=False)
+            print(f"  ✅ Fine-tuning tamamlandı!")
+        elif num_params == 0:
+            print(f"  ⏭️  Parametresiz fonksiyon, fine-tuning atlandı")
         
         func_cases = []
         
-        # Boundary analysis ile akıllı başlangıç
-        if use_boundary_analysis:
-            boundary_info = extract_boundary_values(code_content)
-            num_params = len(env.current_params)
-            smart_starts = get_smart_initial_values(code_content, max(num_params, 1))
-            
+        # Parametresiz fonksiyonlar için özel işlem
+        if num_params == 0:
+            print(f"  ℹ️  Parametresiz fonksiyon, tek test yeterli")
+            # Sadece bir kere çalıştır
             env.useful_cases = []
-            for smart_input in smart_starts[:5]:
+            obs, _ = env.reset()
+            action = np.zeros(5, dtype=np.float32)  # Dummy action
+            obs, reward, _, _, _ = env.step(action)
+            func_cases.extend(env.useful_cases)
+            print(f"  Basit test: {len(env.useful_cases)} case")
+        else:
+            # Parametreli fonksiyonlar için normal işlem
+            # Boundary analysis ile akıllı başlangıç
+            if use_boundary_analysis:
+                boundary_info = extract_boundary_values(code_content)
+                smart_starts = get_smart_initial_values(code_content, max(num_params, 1))
+                
+                env.useful_cases = []
+                for smart_input in smart_starts[:5]:
+                    obs, _ = env.reset()
+                    action = np.array(smart_input[:5] + [0] * (5 - len(smart_input)), dtype=np.float32)
+                    obs, reward, _, _, _ = env.step(action)
+                
+                func_cases.extend(env.useful_cases)
+                print(f"  Boundary analysis: {len(env.useful_cases)} case")
+            
+            # Model ile test case üret
+            env.useful_cases = []
+            for ep in range(num_episodes):
                 obs, _ = env.reset()
-                action = np.array(smart_input[:5] + [0] * (5 - len(smart_input)), dtype=np.float32)
-                obs, reward, _, _, _ = env.step(action)
+                done = False
+                
+                while not done:
+                    action, _ = model.predict(obs, deterministic=False)
+                    obs, reward, terminated, truncated, _ = env.step(action)
+                    done = terminated or truncated
             
             func_cases.extend(env.useful_cases)
-            print(f"  Boundary analysis: {len(env.useful_cases)} case")
-        
-        # Model ile test case üret
-        env.useful_cases = []
-        for ep in range(num_episodes):
-            obs, _ = env.reset()
-            done = False
-            
-            while not done:
-                action, _ = model.predict(obs, deterministic=False)
-                obs, reward, terminated, truncated, _ = env.step(action)
-                done = terminated or truncated
-        
-        func_cases.extend(env.useful_cases)
-        print(f"  Model: {len(env.useful_cases)} case")
+            print(f"  Model: {len(env.useful_cases)} case")
         
         # Her case'e fonksiyon adı ekle
         for case in func_cases:
@@ -841,8 +924,8 @@ def generate_test_cases(
             'coverage_pct': coverage_pct,
             'exceptions': list(env.all_found_exceptions)
         })
-        total_coverage_info['total_coverage_lines'] += len(env.all_covered_lines)
-        total_coverage_info['total_lines'] += env.total_lines
+        # Kümülatif coverage (overlap'leri otomatik halleder)
+        total_coverage_info['all_covered_lines'].update(env.all_covered_lines)
     
     # Duplicate'leri kaldır (aynı fonksiyon + aynı input)
     unique_cases = []
@@ -855,6 +938,14 @@ def generate_test_cases(
     
     total_coverage_info['total_cases'] = len(unique_cases)
     
+    # Fine-tuned modeli kaydet
+    if fine_tune_steps > 0 and save_finetuned_model and model is not None:
+        finetuned_path = "ppo_testgen_finetuned.zip"
+        model.save(finetuned_path)
+        print(f"\n💾 Fine-tuned model kaydedildi: {finetuned_path}")
+        if progress_callback:
+            progress_callback(f"💾 Fine-tuned model kaydedildi: {finetuned_path}")
+    
     # Özet
     print(f"\n{'='*50}")
     print(f"ÖZET")
@@ -862,8 +953,11 @@ def generate_test_cases(
     print(f"Toplam fonksiyon: {len(all_functions)}")
     print(f"Toplam unique test case: {len(unique_cases)}")
     
-    overall_coverage = 100 * total_coverage_info['total_coverage_lines'] / max(total_coverage_info['total_lines'], 1)
-    print(f"Toplam coverage: {total_coverage_info['total_coverage_lines']}/{total_coverage_info['total_lines']} ({overall_coverage:.1f}%)")
+    # Doğru coverage hesaplama: Kümülatif covered lines / dosyadaki satır sayısı
+    total_unique_covered = len(total_coverage_info['all_covered_lines'])
+    file_lines = total_coverage_info['file_lines']
+    overall_coverage = 100 * total_unique_covered / max(file_lines, 1)
+    print(f"Toplam coverage: {total_unique_covered}/{file_lines} ({overall_coverage:.1f}%)")
     
     # Exception'ları göster
     all_exceptions = set()
@@ -876,8 +970,8 @@ def generate_test_cases(
     # Sonuç bilgileri
     result_info = {
         'total_cases': len(unique_cases),
-        'coverage_lines': total_coverage_info['total_coverage_lines'],
-        'total_lines': total_coverage_info['total_lines'],
+        'coverage_lines': total_unique_covered,
+        'total_lines': file_lines,
         'coverage_pct': overall_coverage,
         'exceptions_found': list(all_exceptions),
         'functions': total_coverage_info['functions'],

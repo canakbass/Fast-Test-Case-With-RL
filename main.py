@@ -31,9 +31,10 @@ if api_key:
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Model Ayarları")
-fine_tune_steps = st.sidebar.slider("Fine-Tune Step", 0, 20000, 5000)
+fine_tune_steps = st.sidebar.slider("Fine-Tune Step (Fonksiyon Başına)", 0, 50000, 10000, step=5000)
 num_episodes = st.sidebar.slider("Episode Sayısı", 1, 10, 2)  # Azaltıldı: 5-50 -> 1-10, default 2
 use_boundary = st.sidebar.checkbox("Boundary Analysis Kullan", value=True)
+save_finetuned = st.sidebar.checkbox("Fine-Tuned Modeli Kaydet", value=True)
 
 uploaded_file = st.file_uploader("📂 Python Dosyası Yükle", type="py")
 
@@ -88,19 +89,41 @@ if uploaded_file is not None:
 
         if st.button("🚀 Test Case Üret", type="primary"):
             # Model var mı kontrol et
-            if not os.path.exists(base_model_path):
-                st.error(f"❌ Base model bulunamadı: {base_model_path}")
-                st.info("💡 Önce 'python train_v2.py' ile base modeli eğitin.")
+            finetuned_model_path = "ppo_testgen_finetuned.zip"
+            
+            # Fine-tune modunda: önce finetuned model'i kontrol et, yoksa base
+            if mode == "Fine-Tune Edip Üret":
+                if os.path.exists(finetuned_model_path):
+                    model_to_use = finetuned_model_path
+                    st.info(f"📦 Kaydedilmiş fine-tuned model kullanılıyor: {finetuned_model_path}")
+                elif os.path.exists(base_model_path):
+                    model_to_use = base_model_path
+                else:
+                    st.error(f"❌ Model bulunamadı: {base_model_path}")
+                    st.info("💡 Önce 'python train_v2.py' ile base modeli eğitin.")
+                    model_to_use = None
             else:
+                # Hazır model modunda: sadece base model kullan
+                if os.path.exists(base_model_path):
+                    model_to_use = base_model_path
+                else:
+                    st.error(f"❌ Base model bulunamadı: {base_model_path}")
+                    st.info("💡 Önce 'python train_v2.py' ile base modeli eğitin.")
+                    model_to_use = None
+            
+            if model_to_use:
                 ft_steps = fine_tune_steps if mode == "Fine-Tune Edip Üret" else 0
                 
+                progress_placeholder = st.empty()
                 with st.spinner("Test case'ler üretiliyor..."):
                     cases, info = generate_test_cases(
                         code_content, 
-                        model_path=base_model_path,
+                        model_path=model_to_use,
                         num_episodes=num_episodes,
                         fine_tune_steps=ft_steps,
-                        use_boundary_analysis=use_boundary
+                        use_boundary_analysis=use_boundary,
+                        save_finetuned_model=save_finetuned if mode == "Fine-Tune Edip Üret" else False,
+                        progress_callback=lambda msg: progress_placeholder.info(msg)
                     )
 
                 # Sonuç metrikleri
