@@ -24,12 +24,45 @@ import os
 import ast
 import sys
 import torch
+import tempfile
+import shutil
+import atexit
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from tqdm import tqdm
 
 # Boundary Analysis entegrasyonu
 from boundary_analysis import extract_boundary_values, calculate_boundary_reward, get_smart_initial_values
+
+# ============== TEMP FOLDER YÖNETİMİ ==============
+
+TEMP_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+_temp_files = []  # Oluşturulan temp dosyalarını takip et
+
+def ensure_temp_folder():
+    """Temp klasörünü oluştur."""
+    if not os.path.exists(TEMP_FOLDER):
+        os.makedirs(TEMP_FOLDER)
+    return TEMP_FOLDER
+
+def cleanup_temp_files():
+    """Tüm temp dosyalarını sil."""
+    for f in _temp_files:
+        try:
+            if os.path.exists(f):
+                os.remove(f)
+        except:
+            pass
+    _temp_files.clear()
+    # Temp klasördeki tüm dosyaları da temizle
+    if os.path.exists(TEMP_FOLDER):
+        try:
+            shutil.rmtree(TEMP_FOLDER)
+        except:
+            pass
+
+# Program kapanırken temizlik yap
+atexit.register(cleanup_temp_files)
 
 # ============== KOD ANALİZ FONKSİYONLARI ==============
 
@@ -121,7 +154,10 @@ def get_function_info(code_content, module_name="temp", target_func_name=None, i
     Koddan fonksiyon ve parametre bilgilerini çıkar.
     Class metodları için is_method=True ve class_name gerekli.
     """
-    file_path = f"{module_name}_temp.py"
+    ensure_temp_folder()
+    file_path = os.path.join(TEMP_FOLDER, f"{module_name}_temp.py")
+    _temp_files.append(file_path)
+    
     with open(file_path, "w", encoding='utf-8') as f:
         f.write(code_content)
     
@@ -799,6 +835,7 @@ def generate_test_cases(
     
     env = TestCaseGeneratorEnv()
     model = None
+    initial_model_path = model_path  # Orijinal model yolunu sakla
     
     all_cases = []
     total_coverage_info = {
@@ -807,7 +844,8 @@ def generate_test_cases(
         'total_coverage_lines': 0,
         'total_lines': 0,
         'all_covered_lines': set(),  # Tüm fonksiyonlardan kümülatif coverage
-        'file_lines': 0  # Dosyadaki gerçek satır sayısı
+        'file_lines': 0,  # Dosyadaki gerçek satır sayısı
+        'func_total_lines': 0  # Fonksiyonların toplam satır sayısı
     }
     
     # Dosyadaki toplam satır sayısını bir kere hesapla (boş satır ve yorumları çıkar)
@@ -847,8 +885,11 @@ def generate_test_cases(
         print(f"  Parametreler: {[p['name'] for p in env.current_params]}")
         print(f"  Hedef satır sayısı: {env.total_lines}")
         
-        # Model yükle
-        if model is None:
+        # Model yükle - HER ZAMAN orijinal modelden başla (fine-tuning biriktirmesin)
+        if fine_tune_steps > 0:
+            # Fine-tune modunda her fonksiyon için base modelden başla
+            model = load_model(initial_model_path, env)
+        elif model is None:
             model = load_model(model_path, env)
         else:
             model.set_env(env)
@@ -926,6 +967,8 @@ def generate_test_cases(
         })
         # Kümülatif coverage (overlap'leri otomatik halleder)
         total_coverage_info['all_covered_lines'].update(env.all_covered_lines)
+        # Fonksiyonların toplam satır sayısını topla
+        total_coverage_info['func_total_lines'] += env.total_lines
     
     # Duplicate'leri kaldır (aynı fonksiyon + aynı input)
     unique_cases = []
@@ -953,11 +996,11 @@ def generate_test_cases(
     print(f"Toplam fonksiyon: {len(all_functions)}")
     print(f"Toplam unique test case: {len(unique_cases)}")
     
-    # Doğru coverage hesaplama: Kümülatif covered lines / dosyadaki satır sayısı
+    # Doğru coverage hesaplama: Fonksiyonların toplam satır sayısı üzerinden
     total_unique_covered = len(total_coverage_info['all_covered_lines'])
-    file_lines = total_coverage_info['file_lines']
-    overall_coverage = 100 * total_unique_covered / max(file_lines, 1)
-    print(f"Toplam coverage: {total_unique_covered}/{file_lines} ({overall_coverage:.1f}%)")
+    func_total_lines = total_coverage_info['func_total_lines']  # Fonksiyonların toplam satırı
+    overall_coverage = 100 * total_unique_covered / max(func_total_lines, 1)
+    print(f"Toplam coverage: {total_unique_covered}/{func_total_lines} ({overall_coverage:.1f}%)")
     
     # Exception'ları göster
     all_exceptions = set()
@@ -971,7 +1014,7 @@ def generate_test_cases(
     result_info = {
         'total_cases': len(unique_cases),
         'coverage_lines': total_unique_covered,
-        'total_lines': file_lines,
+        'total_lines': func_total_lines,
         'coverage_pct': overall_coverage,
         'exceptions_found': list(all_exceptions),
         'functions': total_coverage_info['functions'],

@@ -180,6 +180,165 @@ if uploaded_file is not None:
                             file_name="test_generated.py",
                             mime="text/x-python"
                         )
+                        
+                        # ========== OLUŞTURULAN TEST KODUNUN ANALİZİ ==========
+                        st.markdown("---")
+                        st.subheader("📊 Oluşturulan Test Kodunun Analizi")
+                        
+                        # Test kodu metrikleri
+                        test_metrics = get_metrics(pytest_code)
+                        
+                        col_m1, col_m2 = st.columns(2)
+                        
+                        with col_m1:
+                            st.write("### 📈 Kod Metrikleri (Radon)")
+                            # 10 adet metrik göster
+                            metrics_display = {
+                                "1. LOC (Total Lines)": test_metrics.get('LOC', 0),
+                                "2. SLOC (Source Lines)": test_metrics.get('SLOC', 0),
+                                "3. LLOC (Logical Lines)": test_metrics.get('LLOC', 0),
+                                "4. Comments": test_metrics.get('Comments', 0),
+                                "5. Blank Lines": test_metrics.get('Blank lines', 0),
+                                "6. Cyclomatic Complexity": test_metrics.get('Total Complexity', 0),
+                                "7. Max Complexity": test_metrics.get('Max Complexity', 0),
+                                "8. Maintainability Index": round(test_metrics.get('Maintainability Index', 0), 2),
+                                "9. MI Rank": test_metrics.get('MI Rank', 'N/A'),
+                                "10. Halstead Volume": round(test_metrics.get('Halstead Volume', 0), 2) if test_metrics.get('Halstead Volume') else 'N/A'
+                            }
+                            for metric_name, metric_value in metrics_display.items():
+                                st.write(f"**{metric_name}:** {metric_value}")
+                        
+                        with col_m2:
+                            st.write("### 🔗 Test Fonksiyon Grafiği")
+                            try:
+                                test_graph = generate_call_graph(pytest_code)
+                                st.graphviz_chart(test_graph)
+                            except Exception as e:
+                                st.warning(f"Graf oluşturulamadı: {e}")
+                        
+                        # Halstead detayları
+                        with st.expander("📐 Halstead Metrikleri (Detay)"):
+                            halstead_metrics = {
+                                "Difficulty": test_metrics.get('Halstead Difficulty', 'N/A'),
+                                "Effort": test_metrics.get('Halstead Effort', 'N/A'),
+                                "Time (seconds)": test_metrics.get('Halstead Time', 'N/A'),
+                                "Estimated Bugs": test_metrics.get('Halstead Bugs', 'N/A')
+                            }
+                            for k, v in halstead_metrics.items():
+                                if v != 'N/A' and isinstance(v, (int, float)):
+                                    st.write(f"**{k}:** {round(v, 4)}")
+                                else:
+                                    st.write(f"**{k}:** {v}")
+                        
+                        # ========== SONARQUBE BENZERİ KALİTE RAPORU ==========
+                        st.markdown("---")
+                        st.subheader("🔍 Kod Kalite Raporu (SonarQube Tarzı)")
+                        
+                        # Kalite skorları hesapla
+                        mi = test_metrics.get('Maintainability Index', 0)
+                        total_complexity = test_metrics.get('Total Complexity', 0)
+                        loc = test_metrics.get('LOC', 1)
+                        sloc = test_metrics.get('SLOC', 1)
+                        comments = test_metrics.get('Comments', 0)
+                        
+                        # Maintainability skoru (0-100)
+                        maintainability_score = min(100, max(0, mi))
+                        
+                        # Complexity skoru (daha düşük = daha iyi)
+                        complexity_per_loc = total_complexity / max(sloc, 1)
+                        if complexity_per_loc < 0.1:
+                            complexity_grade = "A"
+                            complexity_color = "green"
+                        elif complexity_per_loc < 0.2:
+                            complexity_grade = "B"
+                            complexity_color = "blue"
+                        elif complexity_per_loc < 0.3:
+                            complexity_grade = "C"
+                            complexity_color = "orange"
+                        else:
+                            complexity_grade = "D"
+                            complexity_color = "red"
+                        
+                        # Comment ratio
+                        comment_ratio = (comments / max(loc, 1)) * 100
+                        
+                        # Genel skor
+                        overall_score = (maintainability_score * 0.4 + 
+                                        (100 - min(total_complexity * 5, 100)) * 0.3 +
+                                        min(comment_ratio * 5, 100) * 0.3)
+                        
+                        if overall_score >= 80:
+                            overall_grade = "A"
+                            overall_emoji = "✅"
+                        elif overall_score >= 60:
+                            overall_grade = "B"
+                            overall_emoji = "👍"
+                        elif overall_score >= 40:
+                            overall_grade = "C"
+                            overall_emoji = "⚠️"
+                        else:
+                            overall_grade = "D"
+                            overall_emoji = "❌"
+                        
+                        # Görsel kartlar
+                        col_q1, col_q2, col_q3, col_q4 = st.columns(4)
+                        
+                        with col_q1:
+                            st.metric(
+                                label="🏆 Genel Kalite",
+                                value=f"{overall_grade} {overall_emoji}",
+                                delta=f"{overall_score:.1f}/100"
+                            )
+                        
+                        with col_q2:
+                            st.metric(
+                                label="🔧 Maintainability",
+                                value=test_metrics.get('MI Rank', 'N/A'),
+                                delta=f"{maintainability_score:.1f}"
+                            )
+                        
+                        with col_q3:
+                            st.metric(
+                                label="🔀 Complexity",
+                                value=complexity_grade,
+                                delta=f"{total_complexity} total"
+                            )
+                        
+                        with col_q4:
+                            st.metric(
+                                label="💬 Comment Ratio",
+                                value=f"{comment_ratio:.1f}%",
+                                delta=f"{comments} satır"
+                            )
+                        
+                        # Detaylı rapor
+                        with st.expander("📋 Detaylı Kalite Raporu"):
+                            st.markdown(f"""
+**Kod Kalite Özeti:**
+- **Toplam Satır (LOC):** {loc}
+- **Kaynak Kod Satırı (SLOC):** {sloc}
+- **Mantıksal Satır (LLOC):** {test_metrics.get('LLOC', 0)}
+- **Yorum Satırı:** {comments}
+- **Boş Satır:** {test_metrics.get('Blank lines', 0)}
+
+**Karmaşıklık Analizi:**
+- **Toplam Cyclomatic Complexity:** {total_complexity}
+- **Maksimum Complexity:** {test_metrics.get('Max Complexity', 0)}
+- **Complexity/SLOC Oranı:** {complexity_per_loc:.3f}
+- **Karmaşıklık Notu:** {complexity_grade}
+
+**Bakım Kolaylığı:**
+- **Maintainability Index:** {maintainability_score:.2f}
+- **MI Sınıfı:** {test_metrics.get('MI Rank', 'N/A')}
+- **Yorum Oranı:** {comment_ratio:.1f}%
+
+**Halstead Metrikleri:**
+- **Volume:** {test_metrics.get('Halstead Volume', 'N/A')}
+- **Difficulty:** {test_metrics.get('Halstead Difficulty', 'N/A')}
+- **Estimated Bugs:** {test_metrics.get('Halstead Bugs', 'N/A')}
+
+**Genel Değerlendirme:** {overall_grade} ({overall_score:.1f}/100) {overall_emoji}
+                            """)
 
 st.markdown("---")
 st.info("""
