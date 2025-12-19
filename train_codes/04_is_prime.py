@@ -1,3 +1,4 @@
+"""Training code 4: Prime number check"""
 
 def is_prime(n: int):
     if n < 2:

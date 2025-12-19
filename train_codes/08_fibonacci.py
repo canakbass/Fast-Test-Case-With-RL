@@ -1,3 +1,4 @@
+"""Training code 8: Fibonacci sequence"""
 
 def fibonacci(n: int):
     if n < 0:

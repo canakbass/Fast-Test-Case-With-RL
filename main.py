@@ -91,13 +91,18 @@ if uploaded_file is not None:
             # Model var mı kontrol et
             finetuned_model_path = "ppo_testgen_finetuned.zip"
             
-            # Fine-tune modunda: önce finetuned model'i kontrol et, yoksa base
+            # Fine-tune modunda: ÖNCE base model kullan, fine-tune yap, SONRA kaydet
+            # Bir sonraki sefer finetuned model varsa direkt kullan
             if mode == "Fine-Tune Edip Üret":
-                if os.path.exists(finetuned_model_path):
+                # Eğer finetuned model varsa VE fine_tune_steps=0 ise: direkt finetuned kullan
+                # Eğer fine_tune_steps > 0 ise: base'den başla, yeniden fine-tune yap
+                if fine_tune_steps == 0 and os.path.exists(finetuned_model_path):
                     model_to_use = finetuned_model_path
-                    st.info(f"📦 Kaydedilmiş fine-tuned model kullanılıyor: {finetuned_model_path}")
+                    st.success(f"✅ Kaydedilmiş fine-tuned model kullanılıyor!")
                 elif os.path.exists(base_model_path):
                     model_to_use = base_model_path
+                    if fine_tune_steps > 0:
+                        st.info(f"🎯 Base model üzerinde {fine_tune_steps} step fine-tuning yapılacak...")
                 else:
                     st.error(f"❌ Model bulunamadı: {base_model_path}")
                     st.info("💡 Önce 'python train_v2.py' ile base modeli eğitin.")
@@ -106,6 +111,7 @@ if uploaded_file is not None:
                 # Hazır model modunda: sadece base model kullan
                 if os.path.exists(base_model_path):
                     model_to_use = base_model_path
+                    st.info("📦 Base model kullanılıyor (fine-tuning yok)")
                 else:
                     st.error(f"❌ Base model bulunamadı: {base_model_path}")
                     st.info("💡 Önce 'python train_v2.py' ile base modeli eğitin.")

@@ -1,3 +1,4 @@
+"""Training code 3: Factorial calculation"""
 
 def factorial(n: int):
     if n < 0:

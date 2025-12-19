@@ -1,3 +1,4 @@
+"""Training code 5: Grade calculator"""
 
 def grade(score: int):
     if score < 0 or score > 100:

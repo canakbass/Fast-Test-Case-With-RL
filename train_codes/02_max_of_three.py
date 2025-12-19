@@ -1,3 +1,4 @@
+"""Training code 2: Maximum of three numbers"""
 
 def max_of_three(a: int, b: int, c: int):
     if a >= b and a >= c:

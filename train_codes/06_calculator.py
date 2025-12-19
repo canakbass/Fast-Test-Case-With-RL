@@ -1,3 +1,4 @@
+"""Training code 6: Calculator with operations"""
 
 def calculator(a: float, b: float, op: int):
     if op == 1:

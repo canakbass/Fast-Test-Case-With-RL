@@ -1,3 +1,4 @@
+"""Training code 7: Greatest Common Divisor"""
 
 def gcd(a: int, b: int):
     a = abs(a)
