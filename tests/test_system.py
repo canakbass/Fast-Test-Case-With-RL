@@ -12,7 +12,6 @@ def check_positive(n: int):
         return True
     return False
     """
-
     # Run RL - generate_test_cases returns (cases, stats)
     cases, stats = generate_test_cases(code, num_episodes=2)
 
