@@ -10,3 +10,5 @@ streamlit
 pytest
 matplotlib
 pandas
+selenium
+webdriver-manager

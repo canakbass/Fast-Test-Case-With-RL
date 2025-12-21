@@ -1,30 +1,26 @@
 import pytest
 import os
-from rl_module import train_and_generate_cases
+from rl_module_v2 import generate_test_cases
 from analiz_module import get_metrics
 import shutil
 
 def test_rl_generation():
     # Simple function to test
     code = """
-def check_positive(n):
+def check_positive(n: int):
     if n > 0:
         return True
     return False
     """
 
-    # Run RL
-    cases = train_and_generate_cases(code, module_name="test_temp_mod", timesteps=200)
+    # Run RL - generate_test_cases returns (cases, stats)
+    cases, stats = generate_test_cases(code, num_episodes=2)
 
     # We expect at least some cases.
     # Usually RL should find n > 0 and n <= 0.
     assert isinstance(cases, list)
     # Ideally checking if cases are not empty, but with random RL sometimes it might fail in short steps.
     # But for a simple threshold it usually works.
-
-    # Clean up
-    if os.path.exists("test_temp_mod.py"):
-        os.remove("test_temp_mod.py")
 
 def test_metrics():
     code = """
