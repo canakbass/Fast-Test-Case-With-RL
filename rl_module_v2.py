@@ -822,7 +822,17 @@ def generate_test_cases(
     
     if not all_functions:
         print("Hiç test edilebilir fonksiyon bulunamadı!")
-        return [], {}
+        return [], {
+            'total_cases': 0,
+            'coverage_lines': 0,
+            'total_lines': 0,
+            'coverage_pct': 0.0,
+            'exceptions_found': [],
+            'functions': [],
+            'boundary_conditions': [],
+            'critical_values_used': [],
+            'error': 'No testable functions found'
+        }
     
     print(f"Bulunan test edilebilir fonksiyon sayısı: {len(all_functions)}")
     for f in all_functions:
@@ -831,7 +841,17 @@ def generate_test_cases(
     if not os.path.exists(model_path):
         print(f"Model bulunamadı: {model_path}")
         print("Önce train_base_model ile model eğitin.")
-        return [], {}
+        return [], {
+            'total_cases': 0,
+            'coverage_lines': 0,
+            'total_lines': 0,
+            'coverage_pct': 0.0,
+            'exceptions_found': [],
+            'functions': [],
+            'boundary_conditions': [],
+            'critical_values_used': [],
+            'error': f'Model not found: {model_path}'
+        }
     
     env = TestCaseGeneratorEnv()
     model = None
