@@ -142,7 +142,3 @@ Generated Test Cases:
 3. Commit yapın (`git commit -m 'Add amazing feature'`)
 4. Push yapın (`git push origin feature/amazing`)
 5. Pull Request açın
-
-## 📄 Lisans
-
-MIT License
