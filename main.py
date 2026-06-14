@@ -181,12 +181,12 @@ if uploaded_file is not None:
                             mime="text/x-python"
                         )
                         
-                        # ========== OLUŞTURULAN TEST KODUNUN ANALİZİ ==========
+                        # ========== YÜKLENEN KODUN ANALİZİ ==========
                         st.markdown("---")
-                        st.subheader("📊 Oluşturulan Test Kodunun Analizi")
+                        st.subheader("📊 Yüklenen Kodun Analizi")
                         
-                        # Test kodu metrikleri
-                        test_metrics = get_metrics(pytest_code)
+                        # Yüklenen kod metrikleri
+                        test_metrics = get_metrics(code_content)
                         
                         col_m1, col_m2 = st.columns(2)
                         
@@ -209,9 +209,9 @@ if uploaded_file is not None:
                                 st.write(f"**{metric_name}:** {metric_value}")
                         
                         with col_m2:
-                            st.write("### 🔗 Test Fonksiyon Grafiği")
+                            st.write("### 🔗 Fonksiyon Çağrı Grafiği")
                             try:
-                                test_graph = generate_call_graph(pytest_code)
+                                test_graph = generate_call_graph(code_content)
                                 st.graphviz_chart(test_graph)
                             except Exception as e:
                                 st.warning(f"Graf oluşturulamadı: {e}")
